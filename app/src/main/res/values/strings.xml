@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">Raunak Exploits</string>
+    <string name="channel_name">Performance Engine</string>
+    <string name="channel_desc">Active CPU governor lock and thermal throttling telemetry</string>
+    <string name="notification_title">Extreme Performance Active</string>
+    <string name="notification_content">Locked CPU frequency scaling - Real-time stress test running</string>
+    <string name="action_stop">Stop Booster</string>
+</resources>

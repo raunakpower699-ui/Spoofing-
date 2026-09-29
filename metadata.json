@@ -1,0 +1,6 @@
+{
+  "name": "Raunak Exploits",
+  "description": "High-performance CPU benchmark & thermal throttling testing utility with liquid glass interface",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
