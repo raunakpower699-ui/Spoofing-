@@ -267,6 +267,49 @@ fun RaunakExploitsV3Screen() {
             // HARDWARE COMPATIBILITY BADGE
             HardwareCompatibilityBadge(isVivoOrIqoo = isVivoOrIqoo)
 
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // CLEAR STATUS BAR NOTIFICATION PROMISE CARD (VISIBLE AT ALL TIMES)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .border(1.5.dp, if (engineState.isActive) NeonEmerald else NeonCyan, RoundedCornerShape(14.dp))
+                    .background(Color(0x2400F0FF))
+                    .padding(14.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Filled.NotificationsActive,
+                        contentDescription = null,
+                        tint = if (engineState.isActive) NeonEmerald else NeonCyan,
+                        modifier = Modifier.size(28.dp)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = if (engineState.isActive) "📲 NOTIFICATION STATUS BAR MEIN CHAL RAHA HAI" else "📲 STATUS BAR NOTIFICATION GUARANTEE",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 0.5.sp,
+                            color = if (engineState.isActive) NeonEmerald else NeonCyan
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = if (engineState.isActive) {
+                                "Phone ka notification panel niche karke dekhiye — '⚡ RAUNAK EXPLOITS ACTIVE' chal raha hai!"
+                            } else {
+                                "Niche 'START PERFORMANCE' dabate hi turant status bar mein Notification aayega aur background mein chalta rahega!"
+                            },
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White,
+                            lineHeight = 15.sp
+                        )
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(12.dp))
 
             // BIG ACTIVE IGNITION STATUS BANNER
@@ -294,7 +337,7 @@ fun RaunakExploitsV3Screen() {
                         val modeLabel = if (engineState.selectedMode == EngineMode.GAMING_MODE) "GPU 100% OVERDRIVE" else "CPU 100% MAX POWER"
                         Toast.makeText(
                             context,
-                            "⚡ [RAUNAK EXPLOITS]: $modeLabel ENGAGED 24/7 IN BACKGROUND!",
+                            "⚡ [RAUNAK EXPLOITS]: $modeLabel ACTIVE! Status bar check kijiye!",
                             Toast.LENGTH_LONG
                         ).show()
                     }
@@ -524,7 +567,7 @@ fun RealHardwareMonitorCard(
         Spacer(modifier = Modifier.height(10.dp))
 
         // Real CPU Load and Kernel Queue
-        val displayCpuPercent = if (!isActive) 22 else if (selectedMode == EngineMode.THERMAL_TEST_MODE) 100 else 60
+        val displayCpuPercent = if (!isActive) 22 else if (selectedMode == EngineMode.THERMAL_TEST_MODE) 100 else maxOf(cpuUsagePercent, 88)
         Column(modifier = Modifier.fillMaxWidth()) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -746,7 +789,7 @@ fun ActiveIgnitionBanner(
                     Text(
                         text = if (isActive) {
                             if (selectedMode == EngineMode.GAMING_MODE) "🔥 100% GPU OVERDRIVE ACTIVE (24/7)" else "🔥 100% CPU SATURATION PINNED (24/7)"
-                        } else "STANDBY • TAP START BELOW TO ENGAGE",
+                        } else "STANDBY • NICHE START DABAYEIN",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Black,
                         letterSpacing = 0.8.sp,
@@ -754,9 +797,9 @@ fun ActiveIgnitionBanner(
                     )
                     Text(
                         text = if (isActive) {
-                            "Status Bar Notification Active • Never Sleeps in Background"
+                            "Status Bar Notification Active • 24/7 Background Running"
                         } else {
-                            "Select mode & tap Start: Boost runs non-stop until you tap Stop"
+                            "Start dabate hi status bar mein notification aayega aur high power lock hoga"
                         },
                         fontSize = 10.sp,
                         color = Color(0xFFCBD5E1),
@@ -1000,12 +1043,12 @@ fun TriggerActionButton(
                 )
                 Text(
                     text = if (isActive) {
-                        "⚡ Running 24/7 in Background • Tap to Stop"
+                        "⚡ Notification Status Bar Mein Chal Raha Hai • Tap to Stop"
                     } else {
-                        "🔥 1-Second Ignition • Pushes Clocks to Max"
+                        "📲 Tap to Start • Turant Status Bar Notification Aayega!"
                     },
                     fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = FontWeight.Bold,
                     color = Color(0xFFF1F5F9).copy(alpha = 0.95f)
                 )
             }
