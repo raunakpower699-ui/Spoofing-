@@ -236,9 +236,13 @@ class FpsOverlayService : Service() {
                 tvTemp?.text = "%.1f°C".format(state.temperatureCelsius)
                 tvPing?.text = "${state.livePingMs}ms"
 
-                val mins = state.timerSecondsRemaining / 60
-                val secs = state.timerSecondsRemaining % 60
-                tvTimer?.text = "%02d:%02d".format(mins, secs)
+                if (state.timerSecondsRemaining < 0) {
+                    tvTimer?.text = "∞ NON-STOP"
+                } else {
+                    val mins = state.timerSecondsRemaining / 60
+                    val secs = state.timerSecondsRemaining % 60
+                    tvTimer?.text = "%02d:%02d".format(mins, secs)
+                }
 
                 if (state.livePingMs < 50) {
                     tvPing?.setTextColor(Color.parseColor("#00F59B")) // Ultra low ping locked

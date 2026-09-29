@@ -30,7 +30,7 @@ class ExampleRobolectricTest {
         assertFalse(state.gpuGovernorLocked)
         assertFalse(state.cpuGovernorBalanced)
         assertEquals(com.example.engine.EngineMode.GAMING_MODE, state.selectedMode)
-        assertEquals(15, state.configuredDurationMinutes)
+        assertEquals(0, state.configuredDurationMinutes)
         assertNotNull(state.logs)
     }
 

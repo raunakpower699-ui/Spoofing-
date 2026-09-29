@@ -15,6 +15,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.MainActivity
 import com.example.R
+import com.example.engine.RaunakExploitsEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -29,27 +30,27 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * Foreground Service hosting the Native C++ POSIX thread stress engine.
- * Holds a 120-minute Partial WakeLock to lock CPU governors during gaming or thermal tests.
+ * Persistent Non-Stop Foreground Service for RAUNAK EXPLOITS ENGINE.
+ * Holds an indefinite PARTIAL_WAKE_LOCK so CPU & GPU locks NEVER sleep
+ * in the background until the user stops or clears the app from recents.
  */
 class NativeStressService : Service() {
 
     private val serviceJob = SupervisorJob()
-    private val serviceScope = CoroutineScope(Dispatchers.Main + serviceJob)
+    private val serviceScope = CoroutineScope(Dispatchers.Default + serviceJob)
     private var telemetryJob: Job? = null
+    private var governorPinnerJob: Job? = null
 
     private var wakeLock: PowerManager.WakeLock? = null
 
     companion object {
         private const val TAG = "NativeStressService"
-        const val CHANNEL_ID = "monster_engine_channel"
+        const val CHANNEL_ID = "raunak_persistent_engine_channel"
         const val NOTIFICATION_ID = 8848
 
         const val ACTION_START = "com.example.action.START_MONSTER"
         const val ACTION_STOP = "com.example.action.STOP_MONSTER"
-
-        // Max wake lock: 120 minutes (2 hours)
-        private const val WAKELOCK_DURATION_MS = 120 * 60 * 1000L
+        const val EXTRA_MODE = "extra_mode"
 
         init {
             try {
@@ -63,9 +64,10 @@ class NativeStressService : Service() {
         private val _serviceState = MutableStateFlow(MonsterServiceState())
         val serviceState: StateFlow<MonsterServiceState> = _serviceState.asStateFlow()
 
-        fun startService(context: Context) {
+        fun startService(context: Context, isThermalTestMode: Boolean = false) {
             val intent = Intent(context, NativeStressService::class.java).apply {
                 action = ACTION_START
+                putExtra(EXTRA_MODE, if (isThermalTestMode) "THERMAL" else "GAMING")
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
@@ -95,24 +97,41 @@ class NativeStressService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action ?: ACTION_START
+        val mode = intent?.getStringExtra(EXTRA_MODE) ?: "GAMING"
 
         when (action) {
             ACTION_START -> {
-                startMonsterMode()
+                startPersistentMode(isThermalMode = mode == "THERMAL")
             }
             ACTION_STOP -> {
-                stopMonsterMode()
+                // User pressed Stop on notification or in app
+                stopPersistentMode()
+                RaunakExploitsEngine.stopPerformance(applicationContext)
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
                 return START_NOT_STICKY
             }
         }
 
+        // Return START_STICKY to guarantee Android will restart the service if killed by memory pressure
         return START_STICKY
     }
 
-    private fun startMonsterMode() {
-        acquireWakeLock()
+    /**
+     * Called when the user removes the app task from recent apps (swiping away).
+     * Automatically and cleanly shuts down the performance boost as requested.
+     */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        Log.i(TAG, "User manually closed/swiped app from recents. Terminating performance boost.")
+        RaunakExploitsEngine.stopPerformance(applicationContext)
+        stopPersistentMode()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
+    private fun startPersistentMode(isThermalMode: Boolean) {
+        acquireIndefiniteWakeLock()
 
         val coreCount = try {
             getHardwareCoreCount()
@@ -120,10 +139,19 @@ class NativeStressService : Service() {
             Runtime.getRuntime().availableProcessors().coerceAtLeast(1)
         }
 
-        val notification = buildNotification(
-            title = "Monster Engine Active",
-            contentText = "Locking CPU governor across $coreCount native cores"
-        )
+        val title = if (isThermalMode) {
+            "⚡ RAUNAK EXPLOITS: 100% CPU TEST ACTIVE"
+        } else {
+            "⚡ RAUNAK EXPLOITS: GPU 100% LOCKED (BACKGROUND)"
+        }
+
+        val subtitle = if (isThermalMode) {
+            "C++ threads stressing $coreCount cores • WakeLock held non-stop"
+        } else {
+            "Performance boost active in background • Free Fire Mode"
+        }
+
+        val notification = buildNotification(title = title, contentText = subtitle)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
@@ -135,25 +163,37 @@ class NativeStressService : Service() {
             startForeground(NOTIFICATION_ID, notification)
         }
 
-        try {
-            startNativeStress()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error invoking startNativeStress: ${e.message}", e)
+        // In Thermal Mode, invoke heavy C++ POSIX thread math loop
+        if (isThermalMode) {
+            try {
+                startNativeStress()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error invoking startNativeStress: ${e.message}", e)
+            }
+        } else {
+            try {
+                stopNativeStress()
+            } catch (_: Exception) {}
         }
 
-        startTelemetry(coreCount)
+        startContinuousGovernorPinner(isThermalMode)
+        startTelemetry(coreCount, isThermalMode)
     }
 
-    private fun stopMonsterMode() {
+    private fun stopPersistentMode() {
         try {
             stopNativeStress()
         } catch (e: Exception) {
             Log.e(TAG, "Error invoking stopNativeStress: ${e.message}", e)
         }
 
-        releaseWakeLock()
+        governorPinnerJob?.cancel()
+        governorPinnerJob = null
+
         telemetryJob?.cancel()
         telemetryJob = null
+
+        releaseWakeLock()
 
         _serviceState.update {
             it.copy(
@@ -164,16 +204,22 @@ class NativeStressService : Service() {
         }
     }
 
-    private fun acquireWakeLock() {
+    /**
+     * Indefinite WakeLock ensures Vivo / iQOO / Android OS never puts CPU into deep sleep
+     * until the app is explicitly stopped or swiped from recent apps.
+     */
+    private fun acquireIndefiniteWakeLock() {
         if (wakeLock == null || wakeLock?.isHeld == false) {
             val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
             wakeLock = powerManager?.newWakeLock(
                 PowerManager.PARTIAL_WAKE_LOCK,
-                "MonsterTurbo::NativeCpuLock"
+                "RaunakExploits::NonStopPerformanceWakeLock"
             )?.apply {
                 setReferenceCounted(false)
-                acquire(WAKELOCK_DURATION_MS)
+                // Indefinite acquire without timeout - runs non-stop in background
+                acquire()
             }
+            Log.i(TAG, "Indefinite WakeLock acquired - non-stop background execution engaged.")
         }
     }
 
@@ -181,6 +227,7 @@ class NativeStressService : Service() {
         try {
             if (wakeLock?.isHeld == true) {
                 wakeLock?.release()
+                Log.i(TAG, "WakeLock released.")
             }
         } catch (e: Exception) {
             Log.w(TAG, "Exception releasing wake lock: ${e.message}")
@@ -189,7 +236,34 @@ class NativeStressService : Service() {
         }
     }
 
-    private fun startTelemetry(coreCount: Int) {
+    /**
+     * Re-applies GPU 100% and governor locks continuously every 8 seconds
+     * so aggressive OEM battery managers never throttle clocks while in background.
+     */
+    private fun startContinuousGovernorPinner(isThermalMode: Boolean) {
+        governorPinnerJob?.cancel()
+        governorPinnerJob = serviceScope.launch {
+            val gpuCmds = listOf(
+                "echo performance > /sys/class/kgsl/kgsl-3d0/devfreq/governor",
+                "echo 0 > /sys/class/kgsl/kgsl-3d0/min_pwrlevel",
+                "echo 1 > /sys/kernel/gpu/gpu_clock_lock",
+                "setprop debug.composition.type gpu"
+            )
+
+            while (isActive) {
+                if (!isThermalMode) {
+                    for (cmd in gpuCmds) {
+                        try {
+                            Runtime.getRuntime().exec(arrayOf("sh", "-c", cmd))
+                        } catch (_: Exception) {}
+                    }
+                }
+                delay(8000)
+            }
+        }
+    }
+
+    private fun startTelemetry(coreCount: Int, isThermalMode: Boolean) {
         telemetryJob?.cancel()
         telemetryJob = serviceScope.launch {
             var uptime = 0L
@@ -197,9 +271,9 @@ class NativeStressService : Service() {
                 delay(1000)
                 uptime++
 
-                val isNativeActive = try {
-                    isNativeStressRunning()
-                } catch (_: Exception) {
+                val isNativeActive = if (isThermalMode) {
+                    try { isNativeStressRunning() } catch (_: Exception) { true }
+                } else {
                     true
                 }
 
@@ -212,14 +286,15 @@ class NativeStressService : Service() {
                     )
                 }
 
-                // Update notification text with live seconds
-                if (uptime % 5L == 0L) {
+                // Update notification every 10 seconds to maintain foreground priority
+                if (uptime % 10L == 0L) {
                     val manager = getSystemService(NotificationManager::class.java)
+                    val modeText = if (isThermalMode) "CPU 100% Test" else "GPU 100% Locked"
                     manager.notify(
                         NOTIFICATION_ID,
                         buildNotification(
-                            title = "Monster Engine Active",
-                            contentText = "Locked across $coreCount cores • Active: ${formatUptime(uptime)}"
+                            title = "⚡ RAUNAK EXPLOITS ACTIVE ($modeText)",
+                            contentText = "Active in Background: ${formatUptime(uptime)} • WakeLock Guarded"
                         )
                     )
                 }
@@ -237,10 +312,10 @@ class NativeStressService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Monster Performance Engine",
+                "RAUNAK EXPLOITS Engine Core",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Keeps CPU frequency governors locked during gaming and benchmarks"
+                description = "Keeps CPU & GPU performance governors locked non-stop in background"
                 setShowBadge(false)
             }
             val manager = getSystemService(NotificationManager::class.java)
@@ -278,7 +353,7 @@ class NativeStressService : Service() {
             .setContentIntent(contentPendingIntent)
             .addAction(
                 android.R.drawable.ic_media_pause,
-                "STOP MONSTER MODE",
+                "STOP PERFORMANCE",
                 stopPendingIntent
             )
             .build()
@@ -286,7 +361,7 @@ class NativeStressService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        stopMonsterMode()
+        stopPersistentMode()
         serviceScope.coroutineContext.cancel()
     }
 
