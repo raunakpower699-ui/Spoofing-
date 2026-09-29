@@ -1,10 +1,15 @@
 package com.example
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -43,20 +48,32 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.DeviceThermostat
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.NetworkCheck
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -74,14 +91,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.service.NativeStressService
+import com.example.engine.EngineMode
+import com.example.engine.RaunakExploitsEngine
+import com.example.service.FpsOverlayService
 import com.example.ui.LiquidGlassBackground
 import com.example.ui.LiquidGlassCard
-import com.example.ui.LiquidMetricPill
 import com.example.ui.theme.GlassBorderTint
-import com.example.ui.theme.GlassHighlight
 import com.example.ui.theme.GlassNavyDark
-import com.example.ui.theme.GlassWhiteHigh
 import com.example.ui.theme.GlassWhiteLow
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.theme.NeonAmber
@@ -98,27 +114,28 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             MyApplicationTheme {
-                MonsterAppScreen(onSelfTerminate = { finishAffinity() })
+                RaunakExploitsV3Screen(onSelfTerminate = { finishAffinity() })
             }
         }
     }
 }
 
 @Composable
-fun MonsterAppScreen(onSelfTerminate: () -> Unit) {
+fun RaunakExploitsV3Screen(onSelfTerminate: () -> Unit) {
     val context = LocalContext.current
-    val manufacturer = remember { Build.MANUFACTURER.lowercase(Locale.ROOT) }
-    val isGenuineTargetDevice = remember {
-        manufacturer.contains("vivo") || manufacturer.contains("iqoo")
+    val isVivoOrIqoo = remember { RaunakExploitsEngine.isVivoOrIqooDevice() }
+
+    val engineState by RaunakExploitsEngine.engineState.collectAsStateWithLifecycle()
+    var showAccessDeniedDialog by remember { mutableStateOf(!isVivoOrIqoo && !engineState.isDevBypassed) }
+
+    // In-Game Overlay permission check
+    var isOverlayEnabled by remember {
+        mutableStateOf(
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) Settings.canDrawOverlays(context) else true
+        )
     }
 
-    var isBypassedForDev by remember { mutableStateOf(false) }
-    var showRestrictionDialog by remember { mutableStateOf(!isGenuineTargetDevice) }
-
-    // Service state from NativeStressService
-    val monsterState by NativeStressService.serviceState.collectAsStateWithLifecycle()
-
-    // Notification permission for Android 13+
+    // Android 13+ Notification Permission
     var hasNotificationPermission by remember {
         mutableStateOf(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -136,17 +153,10 @@ fun MonsterAppScreen(onSelfTerminate: () -> Unit) {
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         hasNotificationPermission = isGranted
-        if (!isGranted) {
-            Toast.makeText(
-                context,
-                "Notification permission required for background governor lock.",
-                Toast.LENGTH_LONG
-            ).show()
-        }
     }
 
-    // Hardware Guardrail Alert Dialog
-    if (showRestrictionDialog && !isBypassedForDev) {
+    // EXCLUSIVE HARDWARE & MODEL CHECK DIALOG
+    if (showAccessDeniedDialog) {
         AlertDialog(
             onDismissRequest = { onSelfTerminate() },
             containerColor = GlassNavyDark,
@@ -155,14 +165,14 @@ fun MonsterAppScreen(onSelfTerminate: () -> Unit) {
                     Icon(
                         imageVector = Icons.Filled.Warning,
                         contentDescription = null,
-                        tint = NeonAmber,
+                        tint = Color(0xFFFF1744),
                         modifier = Modifier.size(24.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Device Incompatible",
+                        text = "Access Denied",
                         color = Color.White,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.Black,
                         fontSize = 18.sp
                     )
                 }
@@ -170,24 +180,25 @@ fun MonsterAppScreen(onSelfTerminate: () -> Unit) {
             text = {
                 Column {
                     Text(
-                        text = "This application strictly requires Vivo or iQOO hardware to trigger OEM-level kernel turbo drivers.",
-                        color = Color(0xFFE2E8F0),
+                        text = "[RAUNAK EXPLOITS]: Access Denied. Optimized exclusively for Vivo & iQOO devices.",
+                        color = Color(0xFFFF5252),
+                        fontWeight = FontWeight.Bold,
                         fontSize = 14.sp,
                         lineHeight = 20.sp
                     )
                     Spacer(modifier = Modifier.height(10.dp))
                     Text(
-                        text = "Detected Manufacturer: \"${Build.MANUFACTURER}\"",
+                        text = "Detected Brand: \"${Build.BRAND}\" | Manufacturer: \"${Build.MANUFACTURER}\"",
                         fontFamily = FontFamily.Monospace,
                         color = NeonAmber,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold
+                        fontSize = 12.sp
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Expected: \"vivo\" or \"iqoo\". The app will now terminate.",
+                        text = "This application strictly relies on proprietary kernel driver hooks embedded within OriginOS, FuntouchOS, and Monster Engine.",
                         color = Color(0xFF94A3B8),
-                        fontSize = 12.sp
+                        fontSize = 11.sp,
+                        lineHeight = 16.sp
                     )
                 }
             },
@@ -203,19 +214,19 @@ fun MonsterAppScreen(onSelfTerminate: () -> Unit) {
             dismissButton = {
                 TextButton(
                     onClick = {
-                        isBypassedForDev = true
-                        showRestrictionDialog = false
+                        RaunakExploitsEngine.setDevBypassed(true)
+                        showAccessDeniedDialog = false
                     },
                     modifier = Modifier.testTag("simulate_bypass_button")
                 ) {
-                    Text("SIMULATE (DEV ONLY)", color = NeonCyan, fontSize = 12.sp)
+                    Text("SIMULATE (DEV TEST)", color = NeonCyan, fontSize = 11.sp)
                 }
             }
         )
     }
 
     LiquidGlassBackground(
-        isBoosterActive = monsterState.isRunning,
+        isBoosterActive = engineState.isActive,
         modifier = Modifier.fillMaxSize()
     ) {
         Column(
@@ -223,10 +234,10 @@ fun MonsterAppScreen(onSelfTerminate: () -> Unit) {
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.safeDrawing)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 20.dp),
+                .padding(horizontal = 18.dp, vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Header Bar
+            // HEADER BAR
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -234,31 +245,31 @@ fun MonsterAppScreen(onSelfTerminate: () -> Unit) {
             ) {
                 Column {
                     Text(
-                        text = "MONSTER TURBO",
-                        fontSize = 26.sp,
+                        text = "RAUNAK EXPLOITS",
+                        fontSize = 24.sp,
                         fontWeight = FontWeight.Black,
                         letterSpacing = 2.0.sp,
                         color = Color.White
                     )
                     Text(
-                        text = "VIVO / iQOO GOVERNOR PINNER",
-                        fontSize = 10.sp,
+                        text = "VIVO & iQOO EXCLUSIVE ENGINE V3.0",
+                        fontSize = 9.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 1.2.sp,
                         color = NeonCyan
                     )
                 }
 
-                // Status Badge
+                // Countdown / Status Badge
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(20.dp))
                         .border(
                             1.dp,
-                            if (monsterState.isRunning) NeonEmerald else Color(0x33FFFFFF),
+                            if (engineState.isActive) NeonEmerald else Color(0x33FFFFFF),
                             RoundedCornerShape(20.dp)
                         )
-                        .background(if (monsterState.isRunning) Color(0x2200E676) else GlassWhiteLow)
+                        .background(if (engineState.isActive) Color(0x2200E676) else GlassWhiteLow)
                         .padding(horizontal = 12.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -266,169 +277,190 @@ fun MonsterAppScreen(onSelfTerminate: () -> Unit) {
                         modifier = Modifier
                             .size(8.dp)
                             .clip(CircleShape)
-                            .background(if (monsterState.isRunning) NeonEmerald else Color(0xFF64748B))
+                            .background(if (engineState.isActive) NeonEmerald else Color(0xFF64748B))
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = if (monsterState.isRunning) formatTime(monsterState.uptimeSeconds) else "STANDBY",
+                        text = if (engineState.isActive) formatSeconds(engineState.timerSecondsRemaining) else "STANDBY",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace,
-                        color = if (monsterState.isRunning) NeonEmerald else Color(0xFFCBD5E1)
+                        color = if (engineState.isActive) NeonEmerald else Color(0xFFCBD5E1)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-            // Hardware Verification Banner
-            LiquidGlassCard(
-                modifier = Modifier.fillMaxWidth(),
-                borderGlowColor = if (isGenuineTargetDevice) NeonEmerald else NeonAmber
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = if (isGenuineTargetDevice) Icons.Filled.CheckCircle else Icons.Filled.Warning,
-                        contentDescription = null,
-                        tint = if (isGenuineTargetDevice) NeonEmerald else NeonAmber,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column {
-                        Text(
-                            text = if (isGenuineTargetDevice) "VIVO / iQOO HARDWARE VERIFIED" else "SIMULATED / EMULATOR ENVIRONMENT",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (isGenuineTargetDevice) NeonEmerald else NeonAmber
-                        )
-                        Text(
-                            text = "Brand: ${Build.MANUFACTURER.uppercase(Locale.ROOT)} | Model: ${Build.MODEL}",
-                            fontSize = 11.sp,
-                            color = Color(0xFF94A3B8)
-                        )
-                    }
-                }
-            }
+            // HARDWARE BRAND BADGE
+            VivoIqooVerifiedBadge(isVivoOrIqoo = isVivoOrIqoo)
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-            // Central Pulsing Monster Action Button
-            MonsterToggleButton(
-                isRunning = monsterState.isRunning,
+            // PRIMARY TRIGGER: START PERFORMANCE / STOP PERFORMANCE
+            TriggerActionButton(
+                isActive = engineState.isActive,
+                selectedMode = engineState.selectedMode,
                 onClick = {
                     if (!hasNotificationPermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                         notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                     }
 
-                    if (monsterState.isRunning) {
-                        NativeStressService.stopService(context)
+                    if (engineState.isActive) {
+                        RaunakExploitsEngine.stopPerformance(context)
                     } else {
-                        NativeStressService.startService(context)
+                        RaunakExploitsEngine.startPerformance(context)
                     }
                 }
             )
 
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(18.dp))
 
-            // Real-Time Hardware Status Cards
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    LiquidMetricPill(
-                        label = "Native Engine",
-                        value = if (monsterState.isRunning) "C++ POSIX Active" else "Engine Idle",
-                        indicatorColor = if (monsterState.isRunning) NeonCyan else Color(0xFF64748B),
-                        modifier = Modifier.weight(1f)
-                    )
-
-                    LiquidMetricPill(
-                        label = "Locked Cores",
-                        value = if (monsterState.isRunning) "${monsterState.activeCoreCount} Threads Active" else "${monsterState.activeCoreCount} Cores Ready",
-                        indicatorColor = if (monsterState.isRunning) NeonPurple else Color(0xFF64748B),
-                        modifier = Modifier.weight(1f)
-                    )
+            // INTELLIGENT CPU vs GPU OVERCLOCKING SELECTOR
+            ModeSelectorCard(
+                currentMode = engineState.selectedMode,
+                isActive = engineState.isActive,
+                onModeSelected = { mode ->
+                    RaunakExploitsEngine.setOperationalMode(mode, context)
                 }
+            )
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    LiquidMetricPill(
-                        label = "WakeLock Guard",
-                        value = if (monsterState.wakeLockAcquired) "Active (120 min max)" else "Released",
-                        indicatorColor = if (monsterState.wakeLockAcquired) NeonEmerald else Color(0xFF64748B),
-                        modifier = Modifier.weight(1f)
-                    )
+            Spacer(modifier = Modifier.height(14.dp))
 
-                    LiquidMetricPill(
-                        label = "Driver Spoof",
-                        value = "com.antutu.ABenchMark",
-                        indicatorColor = NeonMagenta,
-                        modifier = Modifier.weight(1f)
-                    )
+            // REAL-TIME TELEMETRY TRIPLE GAUGE (FPS, TEMP, PING)
+            RealtimeTripleTelemetry(
+                fps = engineState.liveFps,
+                tempCelsius = engineState.temperatureCelsius,
+                pingMs = engineState.livePingMs,
+                isThermalGuarded = engineState.thermalGuardTriggered,
+                isActive = engineState.isActive
+            )
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // ULTRA-LOW PING & NETWORK STABILIZER CARD
+            NetworkStabilizerCard(
+                pingMs = engineState.livePingMs,
+                isStabilizerActive = engineState.networkStabilizerActive
+            )
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // CUSTOM AUTO-SHUTDOWN TIMER CONTROL
+            AutoShutdownTimerCard(
+                currentDurationMinutes = engineState.configuredDurationMinutes,
+                remainingSeconds = engineState.timerSecondsRemaining,
+                isActive = engineState.isActive,
+                onDurationChange = { mins ->
+                    RaunakExploitsEngine.setSessionDuration(mins)
                 }
-            }
+            )
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // IN-GAME FLOATING OVERLAY TOGGLE
+            OverlayControlCard(
+                isOverlayActive = isOverlayEnabled && engineState.isActive,
+                onToggleOverlay = {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) {
+                        val intent = Intent(
+                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            Uri.parse("package:${context.packageName}")
+                        )
+                        context.startActivity(intent)
+                        Toast.makeText(context, "Grant 'Display over other apps' to view In-Game HUD", Toast.LENGTH_LONG).show()
+                    } else {
+                        isOverlayEnabled = !isOverlayEnabled
+                        if (isOverlayEnabled && engineState.isActive) {
+                            FpsOverlayService.startOverlay(context)
+                        } else {
+                            FpsOverlayService.stopOverlay(context)
+                        }
+                    }
+                }
+            )
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // AUDIT LOG TERMINAL CONSOLE
+            AuditLogConsoleCard(
+                logs = engineState.logs,
+                context = context
+            )
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Technical Architecture Explainer Card
-            LiquidGlassCard(modifier = Modifier.fillMaxWidth()) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Filled.Security,
-                        contentDescription = null,
-                        tint = NeonCyan,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "SYSTEM ENGINE HIGHLIGHTS",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.0.sp,
-                        color = Color.White
-                    )
-                }
+            // FOOTER BRANDING MANDATE
+            Text(
+                text = "Credit by RAUNAK EXPLOITS",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = 1.8.sp,
+                color = NeonCyan.copy(alpha = 0.95f)
+            )
 
-                Spacer(modifier = Modifier.height(10.dp))
-
-                ArchitectureBullet(
-                    title = "Native POSIX Threads (C++)",
-                    desc = "Direct std::thread deployment querying std::thread::hardware_concurrency() with unrolled math loops to lock core clocks."
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                ArchitectureBullet(
-                    title = "120-Min Partial WakeLock",
-                    desc = "PowerManager.PARTIAL_WAKE_LOCK ensures SoC prime and performance clusters never sleep during gaming sessions."
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                ArchitectureBullet(
-                    title = "AnTuTu Package Signature",
-                    desc = "applicationId = 'com.antutu.ABenchMark' triggers Vivo/iQOO driver thermal relaxation and maximum governor burst."
-                )
-            }
-
-            Spacer(modifier = Modifier.height(30.dp))
+            Spacer(modifier = Modifier.height(28.dp))
         }
     }
 }
 
 @Composable
-fun MonsterToggleButton(
-    isRunning: Boolean,
+fun VivoIqooVerifiedBadge(isVivoOrIqoo: Boolean) {
+    LiquidGlassCard(
+        modifier = Modifier.fillMaxWidth(),
+        borderGlowColor = if (isVivoOrIqoo) NeonEmerald else NeonAmber
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = if (isVivoOrIqoo) Icons.Filled.CheckCircle else Icons.Filled.Warning,
+                    contentDescription = null,
+                    tint = if (isVivoOrIqoo) NeonEmerald else NeonAmber,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Text(
+                        text = if (isVivoOrIqoo) "VIVO / iQOO HARDWARE VERIFIED" else "EMULATOR / SIMULATED ENVIRONMENT",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isVivoOrIqoo) NeonEmerald else NeonAmber
+                    )
+                    Text(
+                        text = "Target Driver: Vivo Multi-Turbo & Monster Kernel Mode",
+                        fontSize = 10.sp,
+                        color = Color(0xFF94A3B8)
+                    )
+                }
+            }
+
+            Text(
+                text = if (isVivoOrIqoo) "LOCKED" else "BYPASSED",
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Black,
+                color = if (isVivoOrIqoo) NeonEmerald else NeonAmber
+            )
+        }
+    }
+}
+
+@Composable
+fun TriggerActionButton(
+    isActive: Boolean,
+    selectedMode: EngineMode,
     onClick: () -> Unit
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "monster_glow")
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse_v3")
     val pulseScale by infiniteTransition.animateFloat(
         initialValue = 0.98f,
         targetValue = 1.04f,
         animationSpec = infiniteRepeatable(
-            animation = tween(if (isRunning) 700 else 1800, easing = FastOutSlowInEasing),
+            animation = tween(if (isActive) 700 else 1800, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
         label = "pulse_scale"
@@ -446,7 +478,7 @@ fun MonsterToggleButton(
 
     val buttonShape = RoundedCornerShape(32.dp)
 
-    val buttonGradient = if (isRunning) {
+    val buttonGradient = if (isActive) {
         Brush.horizontalGradient(
             colors = listOf(
                 Color(0xFFFF1744),
@@ -467,13 +499,13 @@ fun MonsterToggleButton(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(80.dp)
-            .scale(if (isRunning) pulseScale else 1.0f)
+            .height(86.dp)
+            .scale(if (isActive) pulseScale else 1.0f)
             .clip(buttonShape)
             .border(
-                width = if (isRunning) 2.dp else 1.dp,
+                width = if (isActive) 2.dp else 1.dp,
                 brush = Brush.horizontalGradient(
-                    colors = if (isRunning) {
+                    colors = if (isActive) {
                         listOf(Color(0xFFFF1744).copy(alpha = activeGlowAlpha), Color.White)
                     } else {
                         listOf(NeonCyan, NeonMagenta)
@@ -488,7 +520,7 @@ fun MonsterToggleButton(
                 onClick = onClick
             )
             .padding(horizontal = 24.dp)
-            .testTag("monster_toggle_button"),
+            .testTag("start_performance_button"),
         contentAlignment = Alignment.Center
     ) {
         Row(
@@ -496,25 +528,25 @@ fun MonsterToggleButton(
             horizontalArrangement = Arrangement.Center
         ) {
             Icon(
-                imageVector = if (isRunning) Icons.Filled.Pause else Icons.Filled.Bolt,
+                imageVector = if (isActive) Icons.Filled.Pause else Icons.Filled.Bolt,
                 contentDescription = null,
                 tint = Color.White,
-                modifier = Modifier.size(32.dp)
+                modifier = Modifier.size(34.dp)
             )
             Spacer(modifier = Modifier.width(14.dp))
             Column {
                 Text(
-                    text = if (isRunning) "STOP MONSTER MODE" else "START MONSTER MODE",
-                    fontSize = 18.sp,
+                    text = if (isActive) "STOP PERFORMANCE" else "START PERFORMANCE",
+                    fontSize = 19.sp,
                     fontWeight = FontWeight.Black,
-                    letterSpacing = 1.2.sp,
+                    letterSpacing = 1.5.sp,
                     color = Color.White
                 )
                 Text(
-                    text = if (isRunning) "Tap to release CPU locks & native threads" else "Tap to trigger C++ multi-core stress",
+                    text = if (isActive) "Active: ${selectedMode.badge} • Tap to shutdown" else "Tap to trigger V3.0 Vivo/iQOO low-latency locks",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Medium,
-                    color = Color(0xFFF1F5F9).copy(alpha = 0.85f)
+                    color = Color(0xFFF1F5F9).copy(alpha = 0.9f)
                 )
             }
         }
@@ -522,26 +554,422 @@ fun MonsterToggleButton(
 }
 
 @Composable
-fun ArchitectureBullet(title: String, desc: String) {
-    Column {
+fun ModeSelectorCard(
+    currentMode: EngineMode,
+    isActive: Boolean,
+    onModeSelected: (EngineMode) -> Unit
+) {
+    LiquidGlassCard(modifier = Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Filled.Speed,
+                contentDescription = null,
+                tint = NeonCyan,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "OVERCLOCKING LOGIC SELECTOR",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.0.sp,
+                color = Color.White
+            )
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        EngineMode.entries.forEach { mode ->
+            val isSelected = currentMode == mode
+            val borderCol = if (isSelected) NeonCyan else Color(0x1FFFFFFF)
+            val bgCol = if (isSelected) Color(0x2800F0FF) else GlassWhiteLow
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .border(1.dp, borderCol, RoundedCornerShape(14.dp))
+                    .background(bgCol)
+                    .clickable { onModeSelected(mode) }
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(16.dp)
+                        .clip(CircleShape)
+                        .border(2.dp, if (isSelected) NeonCyan else Color(0xFF64748B), CircleShape)
+                        .padding(3.dp)
+                ) {
+                    if (isSelected) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(CircleShape)
+                                .background(NeonCyan)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = mode.title,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isSelected) NeonCyan else Color.White
+                        )
+                        Text(
+                            text = mode.badge,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = if (isSelected) NeonMagenta else Color(0xFF94A3B8)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = mode.description,
+                        fontSize = 10.sp,
+                        color = Color(0xFFCBD5E1),
+                        lineHeight = 14.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun RealtimeTripleTelemetry(
+    fps: Float,
+    tempCelsius: Float,
+    pingMs: Int,
+    isThermalGuarded: Boolean,
+    isActive: Boolean
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        // FPS
+        LiquidGlassCard(modifier = Modifier.weight(1f)) {
+            Text(text = "LIVE FPS", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF94A3B8))
+            Text(
+                text = if (isActive) "%.0f".format(fps) else "60",
+                fontSize = 26.sp,
+                fontWeight = FontWeight.Black,
+                fontFamily = FontFamily.Monospace,
+                color = if (isActive) NeonCyan else Color.White
+            )
+            Text(text = "Choreographer", fontSize = 9.sp, color = NeonEmerald)
+        }
+
+        // TEMP
+        val tempColor = if (tempCelsius >= 45f) Color(0xFFFF1744) else if (tempCelsius >= 40f) NeonAmber else NeonEmerald
+        LiquidGlassCard(
+            modifier = Modifier.weight(1f),
+            borderGlowColor = if (isThermalGuarded) Color(0xFFFF1744) else GlassBorderTint
+        ) {
+            Text(text = "TEMP (°C)", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF94A3B8))
+            Text(
+                text = "%.1f°".format(tempCelsius),
+                fontSize = 26.sp,
+                fontWeight = FontWeight.Black,
+                fontFamily = FontFamily.Monospace,
+                color = tempColor
+            )
+            Text(
+                text = if (isThermalGuarded) "GUARD (>45°)" else "Optimal",
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (isThermalGuarded) NeonAmber else Color(0xFF94A3B8)
+            )
+        }
+
+        // PING
+        val pingColor = if (pingMs < 50) NeonEmerald else NeonAmber
+        LiquidGlassCard(modifier = Modifier.weight(1f)) {
+            Text(text = "PING (ms)", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF94A3B8))
+            Text(
+                text = "${pingMs}ms",
+                fontSize = 26.sp,
+                fontWeight = FontWeight.Black,
+                fontFamily = FontFamily.Monospace,
+                color = pingColor
+            )
+            Text(
+                text = if (pingMs < 50) "<50ms LOCKED" else "Stabilizing",
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+                color = pingColor
+            )
+        }
+    }
+}
+
+@Composable
+fun NetworkStabilizerCard(
+    pingMs: Int,
+    isStabilizerActive: Boolean
+) {
+    LiquidGlassCard(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Filled.Wifi,
+                    contentDescription = null,
+                    tint = NeonEmerald,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text(
+                        text = "ULTRA-LOW PING STABILIZER (<50ms TARGET)",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Text(
+                        text = "Instant DNS flush • Wi-Fi low latency lock • Background sync killer",
+                        fontSize = 10.sp,
+                        color = Color(0xFF94A3B8)
+                    )
+                }
+            }
+
+            Text(
+                text = if (isStabilizerActive) "LOCKED" else "READY",
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Black,
+                color = if (isStabilizerActive) NeonEmerald else Color(0xFF94A3B8)
+            )
+        }
+    }
+}
+
+@Composable
+fun AutoShutdownTimerCard(
+    currentDurationMinutes: Int,
+    remainingSeconds: Int,
+    isActive: Boolean,
+    onDurationChange: (Int) -> Unit
+) {
+    LiquidGlassCard(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Filled.Timer,
+                    contentDescription = null,
+                    tint = NeonAmber,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "AUTO-SHUTDOWN SESSION TIMER",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+            }
+
+            Text(
+                text = if (isActive) "${formatSeconds(remainingSeconds)} REMAINING" else "$currentDurationMinutes MINS",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Black,
+                fontFamily = FontFamily.Monospace,
+                color = NeonAmber
+            )
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Preset Pills
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            listOf(10, 15, 30, 60).forEach { mins ->
+                val isSelected = currentDurationMinutes == mins
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(if (isSelected) NeonAmber else GlassWhiteLow)
+                        .clickable { onDurationChange(mins) }
+                        .padding(vertical = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "$mins M",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isSelected) Color(0xFF0F172A) else Color.White
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
         Text(
-            text = "• $title",
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
-            color = NeonCyan
-        )
-        Text(
-            text = desc,
-            fontSize = 11.sp,
-            color = Color(0xFFCBD5E1),
-            lineHeight = 15.sp,
-            modifier = Modifier.padding(start = 12.dp)
+            text = "Upon timer expiry, all frequency locks, overlays, and background sync are safely restored.",
+            fontSize = 10.sp,
+            color = Color(0xFF94A3B8)
         )
     }
 }
 
-private fun formatTime(seconds: Long): String {
-    val mins = seconds / 60
-    val secs = seconds % 60
+@Composable
+fun OverlayControlCard(
+    isOverlayActive: Boolean,
+    onToggleOverlay: () -> Unit
+) {
+    LiquidGlassCard(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Filled.Layers,
+                    contentDescription = null,
+                    tint = NeonCyan,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Text(
+                        text = "REAL-TIME IN-GAME HUD OVERLAY",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Text(
+                        text = "Draggable screen pill: FPS | °C | Ping | Timer",
+                        fontSize = 10.sp,
+                        color = Color(0xFF94A3B8)
+                    )
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(if (isOverlayActive) NeonEmerald else Color(0x2EFFFFFF))
+                    .clickable(onClick = onToggleOverlay)
+                    .padding(horizontal = 14.dp, vertical = 8.dp)
+            ) {
+                Text(
+                    text = if (isOverlayActive) "HUD ON" else "ENABLE",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isOverlayActive) Color(0xFF0A0F1D) else Color.White
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun AuditLogConsoleCard(
+    logs: List<String>,
+    context: Context
+) {
+    LiquidGlassCard(
+        modifier = Modifier.fillMaxWidth(),
+        borderGlowColor = NeonCyan.copy(alpha = 0.4f)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Filled.Terminal,
+                    contentDescription = null,
+                    tint = NeonCyan,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "REAL-TIME AUDIT LOGS",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.0.sp,
+                    color = Color.White
+                )
+            }
+
+            IconButton(
+                onClick = {
+                    val allLogs = logs.joinToString("\n")
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                    clipboard?.setPrimaryClip(ClipData.newPlainText("Raunak Logs", allLogs))
+                    Toast.makeText(context, "Logs copied to clipboard", Toast.LENGTH_SHORT).show()
+                },
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.ContentCopy,
+                    contentDescription = "Copy Logs",
+                    tint = Color(0xFFCBD5E1),
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(130.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(Color(0xFF04060A))
+                .border(1.dp, Color(0x2200F0FF), RoundedCornerShape(10.dp))
+                .padding(10.dp)
+        ) {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                logs.takeLast(18).forEach { line ->
+                    Text(
+                        text = line,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = when {
+                            line.contains("45°C") || line.contains("Access Denied") || line.contains("WARNING") -> Color(0xFFFF5252)
+                            line.contains("GPU Locked") || line.contains("ENGAGED") || line.contains("ACTIVATING") -> NeonCyan
+                            line.contains("DND Active") || line.contains("Purged") || line.contains("Flushed") -> NeonEmerald
+                            line.contains("Timer Expired") -> NeonAmber
+                            else -> Color(0xFFBAC7D5)
+                        },
+                        lineHeight = 14.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun formatSeconds(seconds: Int): String {
+    val s = seconds.coerceAtLeast(0)
+    val mins = s / 60
+    val secs = s % 60
     return "%02d:%02d".format(mins, secs)
 }

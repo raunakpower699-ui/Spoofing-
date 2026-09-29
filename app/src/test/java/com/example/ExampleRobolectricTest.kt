@@ -20,7 +20,18 @@ class ExampleRobolectricTest {
     fun `read app name from context`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val appName = context.getString(R.string.app_name)
-        assertEquals("Raunak Exploits", appName)
+        assertEquals("RAUNAK EXPLOITS", appName)
+    }
+
+    @Test
+    fun `verify default raunak engine state`() {
+        val state = com.example.engine.RaunakExploitsEngine.engineState.value
+        assertFalse(state.isActive)
+        assertFalse(state.gpuGovernorLocked)
+        assertFalse(state.cpuGovernorBalanced)
+        assertEquals(com.example.engine.EngineMode.GAMING_MODE, state.selectedMode)
+        assertEquals(15, state.configuredDurationMinutes)
+        assertNotNull(state.logs)
     }
 
     @Test
