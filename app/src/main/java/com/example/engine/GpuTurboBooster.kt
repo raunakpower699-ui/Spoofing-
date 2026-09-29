@@ -10,18 +10,18 @@ import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.yield
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
 
 /**
- * Background Hardware GPU Overclock Pipeline.
- * Allocates an offscreen EGL PBuffer and dispatches continuous fragment shader
- * graphics pipelines to Qualcomm Adreno (kgsl) & ARM Mali drivers, forcing
- * GPU devfreq governor to stay pinned at maximum clock frequencies.
+ * Real Hardware GPU Overclock Pipeline.
+ * Creates an offscreen EGL 512x512 PBuffer with heavy trigonometric raymarching
+ * fragment shaders. Executes back-to-back GPU draw passes without delay,
+ * driving Qualcomm Adreno (kgsl) & ARM Mali GPU frequency governors to maximum turbo clock.
  */
 object GpuTurboBooster {
 
@@ -36,14 +36,24 @@ object GpuTurboBooster {
         }
     """
 
+    // Heavy multi-iteration fractal trigonometric fragment shader
     private const val FRAGMENT_SHADER = """
-        precision mediump float;
+        precision highp float;
         uniform vec2 u_resolution;
         uniform float u_time;
         void main() {
-            vec2 st = gl_FragCoord.xy / u_resolution.xy;
-            float c = sin(st.x * 10.0 + u_time) * cos(st.y * 10.0 + u_time);
-            gl_FragColor = vec4(c, 0.9, 1.0, 1.0);
+            vec2 uv = (gl_FragCoord.xy * 2.0 - u_resolution.xy) / min(u_resolution.x, u_resolution.y);
+            vec3 finalColor = vec3(0.0);
+            for (float i = 0.0; i < 8.0; i++) {
+                uv = fract(uv * 1.6) - 0.5;
+                float d = length(uv) * exp(-length(uv));
+                vec3 col = 0.5 + 0.5 * cos(u_time + i * 0.4 + vec3(0.0, 1.0, 2.0));
+                d = sin(d * 8.0 + u_time) / 8.0;
+                d = abs(d);
+                d = pow(0.01 / (d + 0.0001), 1.2);
+                finalColor += col * d;
+            }
+            gl_FragColor = vec4(finalColor, 1.0);
         }
     """
 
@@ -52,7 +62,7 @@ object GpuTurboBooster {
         isGpuBoostActive = true
 
         gpuJob = CoroutineScope(Dispatchers.Default).launch {
-            Log.i(TAG, "Starting Hardware EGL GPU Overclock Pipeline...")
+            Log.i(TAG, "Starting Heavy Hardware EGL GPU Overclock Pipeline...")
 
             var eglDisplay: EGLDisplay = EGL14.EGL_NO_DISPLAY
             var eglContext: EGLContext = EGL14.EGL_NO_CONTEXT
@@ -60,7 +70,6 @@ object GpuTurboBooster {
             var program = 0
 
             try {
-                // Initialize EGL Display
                 eglDisplay = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
                 val version = IntArray(2)
                 EGL14.eglInitialize(eglDisplay, version, 0, version, 1)
@@ -71,6 +80,7 @@ object GpuTurboBooster {
                     EGL14.EGL_RED_SIZE, 8,
                     EGL14.EGL_GREEN_SIZE, 8,
                     EGL14.EGL_BLUE_SIZE, 8,
+                    EGL14.EGL_DEPTH_SIZE, 16,
                     EGL14.EGL_NONE
                 )
 
@@ -84,16 +94,15 @@ object GpuTurboBooster {
                 )
                 eglContext = EGL14.eglCreateContext(eglDisplay, configs[0], EGL14.EGL_NO_CONTEXT, contextAttribs, 0)
 
-                // 256x256 Offscreen PBuffer Surface for GPU render pass
+                // 512x512 Surface for real GPU computation
                 val pbufferAttribs = intArrayOf(
-                    EGL14.EGL_WIDTH, 256,
-                    EGL14.EGL_HEIGHT, 256,
+                    EGL14.EGL_WIDTH, 512,
+                    EGL14.EGL_HEIGHT, 512,
                     EGL14.EGL_NONE
                 )
                 eglSurface = EGL14.eglCreatePbufferSurface(eglDisplay, configs[0], pbufferAttribs, 0)
                 EGL14.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)
 
-                // Compile Shaders
                 val vShader = compileShader(GLES20.GL_VERTEX_SHADER, VERTEX_SHADER)
                 val fShader = compileShader(GLES20.GL_FRAGMENT_SHADER, FRAGMENT_SHADER)
                 program = GLES20.glCreateProgram().also {
@@ -123,18 +132,22 @@ object GpuTurboBooster {
 
                 val timeHandle = GLES20.glGetUniformLocation(program, "u_time")
                 val resHandle = GLES20.glGetUniformLocation(program, "u_resolution")
-                GLES20.glUniform2f(resHandle, 256f, 256f)
+                GLES20.glUniform2f(resHandle, 512f, 512f)
 
                 var frameTime = 0f
+                var passCounter = 0
 
-                // Continuous Hardware GPU Render Loop
+                // Continuous Hardware GPU Workload Loop (No artificial sleep)
                 while (isActive && isGpuBoostActive) {
-                    frameTime += 0.05f
+                    frameTime += 0.03f
                     GLES20.glUniform1f(timeHandle, frameTime)
                     GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 6)
                     EGL14.eglSwapBuffers(eglDisplay, eglSurface)
-                    // High-frequency render pass keeping GPU clock pinned to 100%
-                    delay(12)
+
+                    passCounter++
+                    if (passCounter % 15 == 0) {
+                        yield() // Yield to maintain coroutine responsiveness without letting GPU idle
+                    }
                 }
 
             } catch (e: Exception) {
